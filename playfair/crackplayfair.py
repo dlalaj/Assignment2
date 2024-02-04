@@ -54,7 +54,7 @@ class PlayfairDecrypt:
                 # Revert rectangle-wise swap here, swap columns together
                 first_col, second_col = second_col, first_col
             
-            decrypted = decrypted + playfairTable[first_col, first_col] + playfairTable[second_row, second_col]
+            decrypted = decrypted + playfairTable[first_row, first_col] + playfairTable[second_row, second_col]
         
         return decrypted
 
