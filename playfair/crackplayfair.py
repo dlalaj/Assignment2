@@ -1,11 +1,10 @@
 # Inspired from the approach followed here: https://github.com/IanBurke1/Artificial_Intelligence
-# -- CipherBreaker --> Solver:                              COMPLETE
-# -- GenerateKey --> GenerateKey:                           COMPLETE
-# -- PlayfairDecryption --> PlayfairDecrypt:                COMPLETE
-# -- Quadgrams --> Quadgrams:                               COMPLETE
-# -- SimulatedAnnealing --> SimulatedAnnealing:             INCOMPLETE
+
+from typing import Tuple
 
 import math
+import random
+
 import numpy as np
 
 
@@ -186,21 +185,80 @@ class Quadgrams:
             result = result + math.log10(gram_frequency/self.total_count)
         return result
 
-
-
 class SimulatedAnnealing:
     def __init__(self, temperature: int, ciphertext: str, quadgram_file) -> None:
         '''
-            Simulated Annealing Algorithm
+            Simulated Annealing Class to solve playfair
         '''
         self.playfair = PlayfairDecrypt(ciphertext)
         self.quadgrams = Quadgrams(quadgram_file)
         self.key = GenerateKey()
         self.temperature = temperature
+        # No Free Lunch Theorem: the choice for the number of transitions is not one fit all value
         self.transitions = 55000
 
-    def run_annealing(self) -> None:
-        pass
+    def run_annealing(self) -> Tuple[str, str]:
+        '''
+            The simulated annealing algorithm works on the premise of beginning with a random key guess and improving
+            from there. The parent key is generated at random and we get a first metric of how good this key descrypts
+            via the Quadgram class helper function `compute_english_score`.
+
+            The key shuffling corresponds to the process of moving into a neighbor state in the original annealing algorithm
+            Changes to the neighbor key are typically minimal and defined in the @shuffle_key method of KeyGenerator. They 
+            mostly consist of 2 letter swaps with infrequent cases of row, col of full key reversals. These are explained 
+            in more detail under the GenerateKey class.
+
+            Each new shuffled key produces a different decrypted text whose "goodness" we asses like before via the helper
+            @compute_english_score method. A score improvement will indicate the change in the key is desired and thefore 
+            that change is kept.
+
+                -> Scoring of a candidate plaintext is done via the concept of log probabilities: 
+                    TotalScore = sum_{i in 0, 4, 8 ...len(text) - 3} ( log( P( quadgram_at(i) ) ) )
+
+            As simulated annealing is a heuristic optimization algorithm, termination condition is therefore not clear.
+            A score improvement of 1.6 time compared to the score of first randomly guessed key used for decryption is chosen 
+            as such the termination condition in our case. A different choice could make the search end faster or perhaps
+            lead to incorrect guesses. In our case too, we see the 
+            
+        '''
+        # gram_map = self.quadgrams.ngrams
+        parent_key = self.key.generate_random_key()
+
+        decrypted = self.playfair.decrypt(parent_key)
+        parent_score = self.quadgrams.compute_english_score(decrypted)
+        best_score = parent_score
+        fitness = best_score
+
+        for temperature in range(self.temperature, 0, -1):
+            for transition in range(self.transitions, 0, -1):
+                
+                # Shuffles key and attempts to decrypt using the new key
+                child_key = self.key.shuffle_key(parent_key)
+                current_decrypted = self.playfair.decrypt(child_key)
+                child_score = self.quadgrams.compute_english_score(current_decrypted)
+
+                diff = child_score - parent_score
+
+                if diff > 0:
+                    parent_key = child_key
+                    parent_score = child_score
+                else:
+                    if math.exp(diff/temperature) > random.uniform(0, 1):
+                        parent_key = child_key
+                        parent_score = child_score
+
+
+                if parent_score > best_score:
+                    # New best score, log the result and the message decrypted via the corresponding key
+                    best_score = parent_score
+                    print(f"Key: {parent_key}, score: {best_score}, decrypted_message: \n {self.playfair.decrypt(parent_key)}")
+            if best_score > (fitness / 1.6):
+                break
+            
+        print(f"Best key: {parent_key} results in decrypted message: \n {self.playfair.decrypt(parent_key)}")
+        return parent_key, self.playfair.decrypt(parent_key)
+
+
 
 class Solver:
     def __init__(self, ciphertext_filename: str) -> None:
@@ -208,8 +266,9 @@ class Solver:
             Constructor for the solver
         '''
         self.ciphertext = self.read_cipher_file(ciphertext_filename)
-        self.temperature = (int) ((12 + 0.087 * (len(self.ciphertext) - 84)))
-        self.optimal_temp = self.temperature/3;
+        # No Free Lunch Theorem: the choice for the temperature is not one fit all value
+        self.temperature = int((12 + 0.087 * (len(self.ciphertext) - 84)))
+        self.optimal_temp = int(self.temperature/3);
 
     def read_cipher_file(self, path):
         '''
@@ -220,6 +279,14 @@ class Solver:
         return text
 
     # Create and run Simulated Annealing solver
-    def solve(self, quadgram_file) -> None:
+    def solve(self, quadgram_file) -> Tuple[str, str]:
         sim_annealing_solver = SimulatedAnnealing(self.optimal_temp, self.ciphertext, quadgram_file)
-        sim_annealing_solver.run_annealing()
+        key, plaintext = sim_annealing_solver.run_annealing()
+        return key, plaintext
+
+solver = Solver(ciphertext_filename="ciphertext.txt")
+encryption_key, recovered_plaintext = solver.solve(quadgram_file="4grams.txt")
+
+print("Finished running annealing")
+print(f"Key used for encryption was: {encryption_key}")
+print(f"Recovered plaintext is: {recovered_plaintext}")
